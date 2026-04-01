@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Rekap Nikita Aidina</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        :root { --primary-color: #4e73df; }
+        body { background-color: #f8f9fc; font-family: 'Nunito', sans-serif; color: #333; }
+        .main-card { border: none; border-radius: 12px; transition: 0.3s; }
+        .loading-overlay { 
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(255,255,255,0.8); z-index: 9999; justify-content: center; align-items: center; flex-direction: column; 
+        }
+        .table-container { background: white; border-radius: 12px; padding: 20px; }
+        .badge-kegiatan { font-size: 0.85rem; padding: 6px 12px; border-radius: 20px; text-transform: capitalize; }
+        .btn-action { border-radius: 8px; margin: 0 2px; }
+    </style>
+</head>
+<body>
+
+<div id="loader" class="loading-overlay">
+    <div class="spinner-grow text-primary" role="status"></div>
+    <p class="mt-3 fw-bold text-primary">Sinkronisasi Database...</p>
+</div>
+
+<div class="container py-5">
+    <div class="row mb-4 align-items-center">
+        <div class="col-md-6">
+            <h2 class="fw-bold text-primary m-0">📊 Rekapan Nikita</h2>
+            <p class="text-muted">Data otomatis tersimpan di Google Spreadsheet</p>
+        </div>
+        <div class="col-md-6 text-md-end">
+            <button class="btn btn-outline-success btn-action shadow-sm" onclick="unduhExcel()">📥 Unduh Excel</button>
+            <button class="btn btn-primary btn-action shadow-sm" onclick="bukaModalTambah()">+ Tambah Rekapan</button>
+        </div>
+    </div>
+
+    <div class="card main-card shadow-sm">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th width="15%">ID</th>
+                            <th width="30%">Apa yang di beli</th>
+                            <th width="15%">Kegiatan</th>
+                            <th width="20%">Tanggal</th>
+                            <th width="20%" class="text-center">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabelBody">
+                        </tbody>
+                </table>
+            </div>
+            <div id="emptyState" class="text-center py-5 d-none">
+                <img src="https://cdn-icons-png.flaticon.com/512/7486/7486744.png" width="100" class="mb-3" style="opacity: 0.5;">
+                <p class="text-muted">Belum ada data rekapan.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modalData" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="modalTitle">Tambah Data</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <input type="hidden" id="inputId">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Apa yang di beli</label>
+                    <input type="text" id="inputNama" class="form-control form-control-lg" placeholder="Contoh: Bebek Goreng">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Kegiatan</label>
+                    <select id="inputKegiatan" class="form-select form-select-lg">
+                        <option value="" disabled selected>Pilih...</option>
+                        <option value="jajan">Jajan</option>
+                        <option value="belanja">Belanja</option>
+                        <option value="kuota">Kuota</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Tanggal</label>
+                    <input type="date" id="inputTanggal" class="form-control form-control-lg">
+                </div>
+            </div>
+            <div class="modal-footer bg-light border-0">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                <button type="button" class="btn btn-primary px-4" onclick="simpanData()">Simpan Data</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    const API_URL = "https://script.google.com/macros/s/AKfycbwU1JJPcYCXBFMap4XHJGVhBs9DoA2G4pHDx3wQjG2qdzJ-UZn1NvUfkY4dkz3Nbigp/exec";
+    let modalInstance;
+
+    document.addEventListener("DOMContentLoaded", () => {
+        modalInstance = new bootstrap.Modal(document.getElementById('modalData'));
+        loadData();
+    });
+
+    // 1. AMBIL DATA (READ)
+    async function loadData() {
+        showLoader(true);
+        try {
+            const response = await fetch(API_URL);
+            const data = await response.json();
+            
+            if (data.length === 0) {
+                document.getElementById("emptyState").classList.remove("d-none");
+                document.getElementById("tabelBody").innerHTML = "";
+                return;
+            }
+
+            document.getElementById("emptyState").classList.add("d-none");
+            
+            // Urutkan: Data terbaru muncul di atas
+            const sortedData = data.reverse(); 
+
+            let html = "";
+            sortedData.forEach(item => {
+                // Mapping: Gunakan nama kolom persis di Spreadsheet
+                const id = item["ID"] || "-";
+                const nama = item["Apa yang dibeli"] || "-";
+                const kegiatan = item["Kegiatan"] || "-";
+                const tanggal = item["Tanggal"] ? formatTanggalIndo(item["Tanggal"]) : "-";
+                const rawTanggal = item["Tanggal"]; // Untuk keperluan edit
+
+                html += `<tr>
+                    <td><span class="text-primary fw-bold">#${id.toString().split('-').pop()}</span></td>
+                    <td class="fw-semibold">${nama}</td>
+                    <td><span class="badge badge-kegiatan bg-info text-dark">${kegiatan}</span></td>
+                    <td>${tanggal}</td>
+                    <td class="text-center">
+                        <button class="btn btn-sm btn-outline-warning btn-action" onclick="editData('${id}', '${nama}', '${kegiatan}', '${rawTanggal}')">✏️ Edit</button>
+                        <button class="btn btn-sm btn-outline-danger btn-action" onclick="hapusData('${id}')">🗑️ Hapus</button>
+                    </td>
+                </tr>`;
+            });
+            document.getElementById("tabelBody").innerHTML = html;
+        } catch (error) {
+            Swal.fire("Gagal", "Tidak bisa terhubung ke database. Cek API URL kamu.", "error");
+        } finally {
+            showLoader(false);
+        }
+    }
+
+    // 2. SIMPAN DATA (CREATE / UPDATE)
+    async function simpanData() {
+        const id = document.getElementById("inputId").value || "ID-" + Date.now();
+        const action = document.getElementById("inputId").value ? "update" : "create";
+        
+        const payload = {
+            id: id,
+            nama: document.getElementById("inputNama").value,
+            kegiatan: document.getElementById("inputKegiatan").value,
+            tanggal: document.getElementById("inputTanggal").value
+        };
+
+        if(!payload.nama || !payload.kegiatan || !payload.tanggal) {
+            return Swal.fire("Peringatan", "Mohon isi semua kolom!", "warning");
+        }
+
+        modalInstance.hide();
+        showLoader(true);
+
+        try {
+            await fetch(`${API_URL}?action=${action}`, {
+                method: "POST",
+                body: JSON.stringify(payload)
+            });
+            
+            // Beri jeda 1.5 detik agar Google Sheets selesai menulis data
+            setTimeout(() => {
+                Swal.fire({ title: "Berhasil!", icon: "success", timer: 1000, showConfirmButton: false });
+                loadData();
+            }, 1500);
+        } catch (e) {
+            showLoader(false);
+            Swal.fire("Error", "Gagal menyimpan data.", "error");
+        }
+    }
+
+    // 3. HAPUS DATA (DELETE)
+    async function hapusData(id) {
+        const confirm = await Swal.fire({
+            title: "Hapus Data?",
+            text: "Data ini akan hilang dari Spreadsheet.",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonColor: "#d33",
+            confirmButtonText: "Ya, Hapus!"
+        });
+
+        if (confirm.isConfirmed) {
+            showLoader(true);
+            await fetch(`${API_URL}?action=delete`, {
+                method: "POST",
+                body: JSON.stringify({ id: id })
+            });
+            setTimeout(() => loadData(), 1500);
+        }
+    }
+
+    // HELPER: UI & TANGGAL
+    function formatTanggalIndo(tgl) {
+        if(!tgl) return "-";
+        try {
+            const date = new Date(tgl);
+            return date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+        } catch(e) { return tgl; }
+    }
+
+    function bukaModalTambah() {
+        document.getElementById("inputId").value = "";
+        document.getElementById("inputNama").value = "";
+        document.getElementById("inputKegiatan").value = "";
+        // Tanggal Otomatis Hari Ini
+        document.getElementById("inputTanggal").value = new Date().toISOString().split('T')[0];
+        document.getElementById("modalTitle").innerText = "Tambah Rekapan Baru";
+        modalInstance.show();
+    }
+
+    function editData(id, nama, kegiatan, tanggal) {
+        document.getElementById("inputId").value = id;
+        document.getElementById("inputNama").value = nama;
+        document.getElementById("inputKegiatan").value = kegiatan.toLowerCase();
+        
+        // Format tanggal agar masuk ke input type="date"
+        if(tanggal) {
+            const dt = new Date(tanggal);
+            document.getElementById("inputTanggal").value = dt.toISOString().split('T')[0];
+        }
+        
+        document.getElementById("modalTitle").innerText = "Edit Rekapan";
+        modalInstance.show();
+    }
+
+    function unduhExcel() {
+        window.open(API_URL.replace("/exec", "/export?format=xlsx"), '_blank');
+    }
+
+    function showLoader(show) {
+        document.getElementById('loader').style.display = show ? 'flex' : 'none';
+    }
+</script>
+</body>
+</html>
